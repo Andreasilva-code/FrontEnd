@@ -73,12 +73,15 @@ export default function ParkingRequestsPage() {
     try {
       const response = await fetch(API_ROUTES.PARKING);
       const data = await response.json();
-      if (data && data.body) {
+      if (data && Array.isArray(data.body)) {
         setHistoryData(data.body);
+      } else {
+        setHistoryData([]);
       }
     } catch (error) {
       console.error("Error al obtener historial:", error);
       message.error("No se pudo cargar el historial de solicitudes.");
+      setHistoryData([]);
     } finally {
       setLoading(false);
     }

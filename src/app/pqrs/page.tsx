@@ -65,10 +65,10 @@ const getRespuesta = (r: Pqrs): string | null =>
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
 const TIPOS_PQRS = [
-  { value: 'Petición',     icon: <MessageOutlined />,    color: 'blue',   desc: 'Solicitud de un servicio o trámite administrativo.' },
-  { value: 'Queja',        icon: <WarningOutlined />,     color: 'orange', desc: 'Inconformidad sobre el servicio recibido.' },
-  { value: 'Reclamo',      icon: <CloseCircleOutlined />, color: 'red',    desc: 'Exigencia sobre un derecho que no fue atendido.' },
-  { value: 'Felicitación', icon: <SmileOutlined />,       color: 'green',  desc: 'Reconocimiento positivo a la administración o personal.' },
+  { value: 'Petición', icon: <MessageOutlined />, color: 'blue', desc: 'Solicitud de un servicio o trámite administrativo.' },
+  { value: 'Queja', icon: <WarningOutlined />, color: 'orange', desc: 'Inconformidad sobre el servicio recibido.' },
+  { value: 'Reclamo', icon: <CloseCircleOutlined />, color: 'red', desc: 'Exigencia sobre un derecho que no fue atendido.' },
+  { value: 'Felicitación', icon: <SmileOutlined />, color: 'green', desc: 'Reconocimiento positivo a la administración o personal.' },
 ];
 
 const ESTADOS_PQRS = ['Pendiente', 'En Proceso', 'Resuelto'];
@@ -77,9 +77,9 @@ const ESTADOS_PQRS = ['Pendiente', 'En Proceso', 'Resuelto'];
 
 const estadoBadge = (estado: string) => {
   const e = (estado || '').toLowerCase();
-  if (e.includes('resuelto')) return <Badge status="success"    text="Resuelto"   className="font-bold" />;
-  if (e.includes('proceso'))  return <Badge status="processing" text="En Proceso" className="font-bold" />;
-  return                             <Badge status="warning"    text="Pendiente"  className="font-bold" />;
+  if (e.includes('resuelto')) return <Badge status="success" text="Resuelto" className="font-bold" />;
+  if (e.includes('proceso')) return <Badge status="processing" text="En Proceso" className="font-bold" />;
+  return <Badge status="warning" text="Pendiente" className="font-bold" />;
 };
 
 const tipoTag = (tipo: string) => {
@@ -117,12 +117,12 @@ export default function PqrsPage() {
   const { message } = AntdApp.useApp();
   const [form] = Form.useForm();
 
-  const isAdmin      = user?.rol?.toLowerCase() === 'administrador';
+  const isAdmin = user?.rol?.toLowerCase() === 'administrador';
   const cedulaUsuario = String(user?.cedula || '');
 
   const [activeView, setActiveView] = useState<'new' | 'history'>('new');
-  const [loading,    setLoading]    = useState(false);
-  const [pqrsList,   setPqrsList]   = useState<Pqrs[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [pqrsList, setPqrsList] = useState<Pqrs[]>([]);
   const [searchText, setSearchText] = useState('');
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -137,11 +137,16 @@ export default function PqrsPage() {
   const fetchPqrs = async () => {
     setLoading(true);
     try {
-      const res  = await fetch(API_ROUTES.PQRS);
+      const res = await fetch(API_ROUTES.PQRS);
       const data = await res.json();
-      if (data?.body) setPqrsList(data.body);
+      if (data && Array.isArray(data.body)) {
+        setPqrsList(data.body);
+      } else {
+        setPqrsList([]);
+      }
     } catch {
       message.error('No se pudo cargar la lista de PQRS.');
+      setPqrsList([]);
     } finally {
       setLoading(false);
     }
@@ -159,12 +164,12 @@ export default function PqrsPage() {
     }
     setLoading(true);
     const fd = new FormData();
-    fd.append('idpqrs',        String(Date.now()).slice(-6));
+    fd.append('idpqrs', String(Date.now()).slice(-6));
     fd.append('fechaCreacion', localIso());
-    fd.append('idUsuario',     cedulaUsuario || user?.nombreUsuario || 'usuario');
-    fd.append('tipo',          tipoSelected);
-    fd.append('descripcion',   values.descripcion || '');
-    fd.append('estado',        'Pendiente');
+    fd.append('idUsuario', cedulaUsuario || user?.nombreUsuario || 'usuario');
+    fd.append('tipo', tipoSelected);
+    fd.append('descripcion', values.descripcion || '');
+    fd.append('estado', 'Pendiente');
     if (values.evidencia?.length > 0) {
       fd.append('evidencia', values.evidencia[0].originFileObj);
     }
@@ -221,12 +226,13 @@ export default function PqrsPage() {
       const res = await fetch(API_ROUTES.PQRS, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          idpqrs: replyingTo!.idpqrs, 
+        body: JSON.stringify({
+          idpqrs: replyingTo!.idpqrs,
           estado: 'Resuelto',
-          respuestaPqrs: replyText 
+          respuestaPqrs: replyText
         }),
       });
+
       if (res.ok) {
         message.success('Respuesta enviada y estado actualizado a "Resuelto"');
         setReplyingTo(null);
@@ -244,7 +250,7 @@ export default function PqrsPage() {
   };
 
   // ── filtrado ──────────────────────────────────────────────────────────────
-  const dataSource = pqrsList
+  const dataSource = (Array.isArray(pqrsList) ? pqrsList : [])
     .filter(p => isAdmin ? true : p.idUsuario === cedulaUsuario)
     .filter(p => {
       const s = searchText.toLowerCase();
@@ -358,18 +364,18 @@ export default function PqrsPage() {
       title: 'Acciones',
       key: 'acciones',
       render: (_: any, r: Pqrs) => (
-         <Button
-           size="small"
-           type="primary"
-           ghost
-           className="border-emerald-500 text-emerald-600 hover:!bg-emerald-50"
-           onClick={() => {
-             setReplyingTo(r);
-             setReplyText(getRespuesta(r) || '');
-           }}
-         >
-           {getRespuesta(r) ? 'Editar Respuesta' : 'Responder'}
-         </Button>
+        <Button
+          size="small"
+          type="primary"
+          ghost
+          className="border-emerald-500 text-emerald-600 hover:!bg-emerald-50"
+          onClick={() => {
+            setReplyingTo(r);
+            setReplyText(getRespuesta(r) || '');
+          }}
+        >
+          {getRespuesta(r) ? 'Editar Respuesta' : 'Responder'}
+        </Button>
       )
     }] : []),
   ];
@@ -591,7 +597,12 @@ export default function PqrsPage() {
             <Table
               columns={columns}
               dataSource={dataSource}
-              rowKey="idpqrs"
+              // 🌟 SOLUCIÓN: Usamos solo el 'record' y combinamos propiedades para asegurar un String único sin usar el index
+              rowKey={(record) => {
+                if (record.idpqrs) return String(record.idpqrs);
+                // Salvavidas en caso de que falte el idpqrs en datos de prueba:
+                return `pqrs-${record.idUsuario}-${record.fechaCreacion}`;
+              }}
               loading={loading}
               pagination={{ pageSize: 8, showSizeChanger: false }}
               className="pqrs-table"
@@ -623,7 +634,7 @@ export default function PqrsPage() {
 
       {/* Modal para que el admin responda */}
       <Modal
-        title={<div className="flex items-center gap-2"><MessageOutlined className="text-emerald-500"/> Responder PQRS #{replyingTo?.idpqrs}</div>}
+        title={<div className="flex items-center gap-2"><MessageOutlined className="text-emerald-500" /> Responder PQRS #{replyingTo?.idpqrs}</div>}
         open={!!replyingTo}
         onCancel={() => {
           setReplyingTo(null);
@@ -654,7 +665,7 @@ export default function PqrsPage() {
 
       {/* Modal para ver la respuesta (Admin/Usuario) */}
       <Modal
-        title={<div className="flex items-center gap-2"><MessageOutlined className="text-emerald-500"/> Respuesta a PQRS #{viewingReply?.idpqrs}</div>}
+        title={<div className="flex items-center gap-2"><MessageOutlined className="text-emerald-500" /> Respuesta a PQRS #{viewingReply?.idpqrs}</div>}
         open={!!viewingReply}
         footer={[
           <Button key="close" type="primary" onClick={() => setViewingReply(null)} className="bg-emerald-500 hover:!bg-emerald-600 border-none">

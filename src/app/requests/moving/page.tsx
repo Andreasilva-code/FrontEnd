@@ -57,12 +57,15 @@ export default function MovingRequestsPage() {
     try {
       const response = await fetch(API_ROUTES.MOVING);
       const data = await response.json();
-      if (data && data.body) {
+      if (data && Array.isArray(data.body)) {
         setHistoryData(data.body);
+      } else {
+        setHistoryData([]);
       }
     } catch (error) {
       console.error("Error al obtener historial:", error);
       message.error("No se pudo cargar el historial de trasteos.");
+      setHistoryData([]);
     } finally {
       setLoading(false);
     }

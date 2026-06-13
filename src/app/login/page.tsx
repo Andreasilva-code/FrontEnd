@@ -33,15 +33,14 @@ const LoginPage = () => {
       });
 
       if (response.ok) {
-        // La API ahora retorna: { body: { user: { id, correo, rol } } }
         const responseData = await response.json().catch(() => ({}));
-        const userPayload = responseData?.body?.user || {};
+        const userPayload = responseData?.body?.user || responseData?.user || {};
 
         const userData = {
           nombreUsuario: userPayload.nombreUsuario || payload.correo.split('@')[0],
           correo: userPayload.correo || payload.correo,
-          cedula: userPayload.id || null,
-          rol: userPayload.rol || 'propietario' // Guardamos el rol directamente
+          cedula: userPayload.id || userPayload.idUsuarios || null,
+          rol: userPayload.rol || 'propietario'
         };
 
         login(userData);

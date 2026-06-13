@@ -11,6 +11,7 @@ export const API_ROUTES = {
   SOCIAL_HALL: `${API_BASE_URL}/solicitudsalonessociales`,
   MURO: `${API_BASE_URL}/muro`,
   LOGIN: `${API_BASE_URL}/usuarios/login`,
+  LOGOUT: `${API_BASE_URL}/usuarios/logout`,
   REGISTER: `${API_BASE_URL}/usuarios`,
   RESIDENTS: `${API_BASE_URL}/residentes`,
   VISITOR_PARKING: `${API_BASE_URL}/parqueaderovisitante`,

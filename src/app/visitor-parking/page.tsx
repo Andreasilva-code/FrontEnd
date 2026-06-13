@@ -382,17 +382,20 @@ export default function VisitorParkingPage() {
     try {
       const response = await fetch(API_ROUTES.VISITOR_PARKING);
       const data = await response.json();
-      if (data && data.body) {
+      if (data && Array.isArray(data.body)) {
         const sorted = [...data.body].sort((a, b) => {
           if (!a.horaIngreso) return 1;
           if (!b.horaIngreso) return -1;
           return new Date(b.horaIngreso).getTime() - new Date(a.horaIngreso).getTime();
         });
         setVisitorData(sorted);
+      } else {
+        setVisitorData([]);
       }
     } catch (error) {
       console.error("Error al obtener parqueadero de visitante:", error);
       message.error("No se pudo cargar la lista de vehículos de visitantes.");
+      setVisitorData([]);
     } finally {
       setLoading(false);
     }

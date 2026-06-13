@@ -60,12 +60,15 @@ export default function Home() {
     try {
       const response = await fetch(`${API_ROUTES.MURO}/`);
       const data = await response.json();
-      if (data && data.body) {
+      if (data && Array.isArray(data.body)) {
         setPosts(data.body);
+      } else {
+        setPosts([]);
       }
     } catch (error) {
       console.error("Error al obtener las publicaciones:", error);
       message.error("No se pudieron cargar las publicaciones del muro.");
+      setPosts([]);
     } finally {
       setLoading(false);
     }
@@ -234,7 +237,7 @@ export default function Home() {
             </Card>
           ))}
         </div>
-      ) : posts.length === 0 ? (
+      ) : (!posts || !Array.isArray(posts) || posts.length === 0) ? (
         <div className="text-center py-20 bg-white rounded-[2rem] shadow-sm border border-dashed border-slate-200">
           <NotificationOutlined className="text-5xl text-slate-200 mb-4" />
           <p className="text-slate-400 text-lg font-medium">No hay publicaciones disponibles en este momento.</p>

@@ -36,12 +36,15 @@ export default function ResidentsPage() {
     try {
       const response = await fetch(API_ROUTES.RESIDENTS);
       const data = await response.json();
-      if (data && data.body) {
+      if (data && Array.isArray(data.body)) {
         setResidents(data.body);
+      } else {
+        setResidents([]);
       }
     } catch (error) {
       console.error("Error fetching residents:", error);
       message.error("No se pudo cargar la lista de residentes.");
+      setResidents([]);
     } finally {
       setLoading(false);
     }
