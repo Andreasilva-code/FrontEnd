@@ -848,9 +848,15 @@ export default function VisitorParkingPage() {
                     Registre el vehículo al ingresar para tener un control estricto de seguridad.
                   </Paragraph>
                   <Divider className="border-slate-700 my-4" />
-                  <div className="flex justify-between">
+                  <div className="flex justify-between mb-4">
                     <Text className="text-slate-400">Puestos habilitados:</Text>
                     <Tag color="emerald" className="m-0 border-none rounded-full font-bold">20 Puestos</Tag>
+                  </div>
+                  <div className="bg-slate-800/60 p-4 rounded-xl border border-slate-700/50">
+                    <span className="text-amber-400 text-xs font-bold uppercase tracking-wider block mb-1">Jornada Nocturna</span>
+                    <Paragraph className="text-slate-300 text-xs !mb-0">
+                      La jornada nocturna va entre las <strong>8:00:00 pm</strong> del día actual a las <strong>05:59:59 am</strong> del siguiente día. Si el vehículo está en este horario se aplicará la tarifa plena de <strong>$4.000 COP</strong>.
+                    </Paragraph>
                   </div>
                 </div>
               </Card>
