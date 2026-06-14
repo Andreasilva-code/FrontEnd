@@ -2,13 +2,25 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-// Interceptar fetch de manera global en el cliente para incluir cookies HttpOnly de forma automática
+// Interceptar fetch de manera global en el cliente para incluir cookies HttpOnly de forma automática y manejar expiración/invalidez (401)
 if (typeof window !== 'undefined') {
   const originalFetch = window.fetch;
-  window.fetch = function (input, init) {
+  window.fetch = async function (input, init) {
     init = init || {};
     init.credentials = init.credentials || 'include';
-    return originalFetch(input, init);
+    try {
+      const response = await originalFetch(input, init);
+      if (response.status === 401) {
+        const urlStr = typeof input === 'string' ? input : (input as Request).url || '';
+        if (!urlStr.includes('/usuarios/login') && !urlStr.includes('/usuarios/logout')) {
+          localStorage.removeItem('user');
+          window.location.replace('/login');
+        }
+      }
+      return response;
+    } catch (error) {
+      throw error;
+    }
   };
 }
 
@@ -44,11 +56,49 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  const SESSION_DURATION = 8 * 60 * 60 * 1000; // 8 horas en milisegundos
+
+  const logout = async () => {
+    setUser(null);
+    setIsAuthenticated(false);
+    localStorage.removeItem('user');
+    localStorage.removeItem('loginTimestamp');
+
+    try {
+      // Hacer la petición al backend para destruir la cookie HttpOnly
+      const { API_ROUTES } = await import('@/config/api');
+      await fetch(API_ROUTES.LOGOUT, {
+        method: 'POST',
+      });
+    } catch (error) {
+      console.error('Error al cerrar sesión en el servidor:', error);
+    } finally {
+      // Redirigir usando replace para limpiar el historial y prevenir navegación atrás a páginas protegidas
+      window.location.replace('/login');
+    }
+  };
+
+  const login = (userData: User) => {
+    setUser(userData);
+    setIsAuthenticated(true);
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('loginTimestamp', String(Date.now()));
+  };
+
   // Check localStorage on initial load and handle bfcache / back button navigation
   useEffect(() => {
     const checkAuth = () => {
       const storedUser = localStorage.getItem('user');
-      if (storedUser) {
+      const loginTimestamp = localStorage.getItem('loginTimestamp');
+
+      if (storedUser && loginTimestamp) {
+        const timeElapsed = Date.now() - Number(loginTimestamp);
+        if (timeElapsed > SESSION_DURATION) {
+          // Ha expirado la sesión local por tiempo
+          logout();
+          return;
+        }
+
         try {
           const parsedUser = JSON.parse(storedUser);
           setUser(parsedUser);
@@ -74,36 +124,23 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     };
 
+    // Temporizador para validar expiración en segundo plano (cada 30 segundos)
+    const interval = setInterval(() => {
+      const loginTimestamp = localStorage.getItem('loginTimestamp');
+      if (loginTimestamp) {
+        const timeElapsed = Date.now() - Number(loginTimestamp);
+        if (timeElapsed > SESSION_DURATION) {
+          logout();
+        }
+      }
+    }, 30000);
+
     window.addEventListener('pageshow', handlePageShow);
     return () => {
       window.removeEventListener('pageshow', handlePageShow);
+      clearInterval(interval);
     };
   }, []);
-
-  const login = (userData: User) => {
-    setUser(userData);
-    setIsAuthenticated(true);
-    localStorage.setItem('user', JSON.stringify(userData));
-  };
-
-  const logout = async () => {
-    setUser(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('user');
-
-    try {
-      // Hacer la petición al backend para destruir la cookie HttpOnly
-      const { API_ROUTES } = await import('@/config/api');
-      await fetch(API_ROUTES.LOGOUT, {
-        method: 'POST',
-      });
-    } catch (error) {
-      console.error('Error al cerrar sesión en el servidor:', error);
-    } finally {
-      // Redirigir usando replace para limpiar el historial y prevenir navegación atrás a páginas protegidas
-      window.location.replace('/login');
-    }
-  };
 
   // Avoid hydration mismatch by not rendering until loaded from localStorage
   if (isLoading) {

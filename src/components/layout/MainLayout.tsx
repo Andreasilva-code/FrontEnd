@@ -20,7 +20,7 @@ import {
 } from '@ant-design/icons';
 import { MapPin, Phone, Mail, Info, Link as LinkIcon, ExternalLink, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 
 const { Header, Sider, Content, Footer } = Layout;
@@ -29,7 +29,18 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [collapsed, setCollapsed] = useState(false);
   const [rol, setRol] = useState<string>('Propietario');
   const pathname = usePathname();
+  const router = useRouter();
   const { user, isAuthenticated, logout } = useAuth();
+  
+  const isPublicRoute = ['/login', '/register', '/'].includes(pathname);
+  const shouldRedirect = !isAuthenticated && !isPublicRoute;
+
+  useEffect(() => {
+    if (shouldRedirect) {
+      router.replace('/login');
+    }
+  }, [shouldRedirect, router]);
+
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = antTheme.useToken();
@@ -277,7 +288,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
 
         <Content className="p-6 sm:p-8 min-h-[calc(100vh-144px)]">
           <div className="max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-700">
-            {children}
+            {shouldRedirect ? (
+              <div className="flex items-center justify-center py-20">
+                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-emerald-500"></div>
+              </div>
+            ) : (
+              children
+            )}
           </div>
         </Content>
 
