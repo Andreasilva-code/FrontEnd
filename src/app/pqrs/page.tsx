@@ -56,6 +56,8 @@ interface Pqrs {
   estado: string;
   respuestaPqrs?: string | null; // columna antigua
   respuesta?: string | null;      // columna nueva
+  numeroApartamento?: string | number | null;
+  fechaRespuesta?: string | null;
 }
 
 // Helper para obtener la respuesta de cualquiera de las dos columnas
@@ -140,7 +142,11 @@ export default function PqrsPage() {
       const res = await fetch(API_ROUTES.PQRS);
       const data = await res.json();
       if (data && Array.isArray(data.body)) {
-        setPqrsList(data.body);
+        const normalized = data.body.map((item: any) => ({
+          ...item,
+          idpqrs: item.idpqrs !== undefined ? Number(item.idpqrs) : Number(item.idPqrs),
+        }));
+        setPqrsList(normalized);
       } else {
         setPqrsList([]);
       }
@@ -229,7 +235,8 @@ export default function PqrsPage() {
         body: JSON.stringify({
           idpqrs: replyingTo!.idpqrs,
           estado: 'Resuelto',
-          respuestaPqrs: replyText
+          respuestaPqrs: replyText,
+          fechaRespuesta: localIso(),
         }),
       });
 
@@ -277,10 +284,9 @@ export default function PqrsPage() {
       title: 'Descripción',
       dataIndex: 'descripcion',
       key: 'descripcion',
+      width: 250,
       render: (v: string) => (
-        <Tooltip title={v}>
-          <Text className="text-slate-600 max-w-[220px] block truncate">{v || '—'}</Text>
-        </Tooltip>
+        <Text className="text-slate-600 whitespace-pre-wrap break-words block">{v || '—'}</Text>
       ),
     },
     ...(isAdmin ? [{
@@ -290,13 +296,25 @@ export default function PqrsPage() {
       render: (v: string) => <Text className="font-mono text-slate-500 text-xs">{v}</Text>,
     }] : []),
     {
-      title: 'Fecha',
+      title: 'Apartamento',
+      dataIndex: 'numeroApartamento',
+      key: 'numeroApartamento',
+      render: (v: any, r: Pqrs) => <Text className="font-bold text-slate-600 text-xs">{r.numeroApartamento || v || '—'}</Text>,
+    },
+    {
+      title: 'Fecha Creacion',
       dataIndex: 'fechaCreacion',
       key: 'fechaCreacion',
       render: (v: string) => <Text className="text-slate-500 text-xs">{formatDate(v)}</Text>,
       sorter: (a: Pqrs, b: Pqrs) =>
         new Date(a.fechaCreacion).getTime() - new Date(b.fechaCreacion).getTime(),
       defaultSortOrder: 'descend' as const,
+    },
+    {
+      title: 'Fecha Respuesta',
+      dataIndex: 'fechaRespuesta',
+      key: 'fechaRespuesta',
+      render: (v: string) => <Text className="text-slate-500 text-xs">{formatDate(v)}</Text>,
     },
     {
       title: 'Evidencia',
@@ -324,41 +342,20 @@ export default function PqrsPage() {
       },
     },
     {
-      title: 'Estado',
-      key: 'estado',
-      render: (_: any, r: Pqrs) => (
-        isAdmin ? (
-          <Select
-            value={r.estado}
-            size="small"
-            loading={updatingId === r.idpqrs}
-            onChange={(val) => actualizarEstado(r, val)}
-            style={{ minWidth: 130 }}
-            options={ESTADOS_PQRS.map(e => ({ value: e, label: e }))}
-          />
-        ) : <div>{estadoBadge(r.estado)}</div>
-      )
+      title: 'Respuesta',
+      dataIndex: 'respuestaPqrs',
+      key: 'respuestaPqrs',
+      width: 250,
+      render: (v: string, r: Pqrs) => (
+        <Text className="text-slate-600 whitespace-pre-wrap break-words block">
+          {getRespuesta(r) || '—'}
+        </Text>
+      ),
     },
     {
-      title: 'Respuesta',
-      key: 'respuesta_col',
-      render: (_: any, r: Pqrs) => {
-        const resp = getRespuesta(r);
-        if (resp) {
-          return (
-            <Button
-              size="small"
-              type="primary"
-              ghost
-              className="border-emerald-500 text-emerald-600 hover:!bg-emerald-50 font-bold"
-              onClick={() => setViewingReply(r)}
-            >
-              📩 Ver Respuesta
-            </Button>
-          );
-        }
-        return <Text className="text-slate-300 text-xs">Sin respuesta</Text>;
-      }
+      title: 'Estado',
+      key: 'estado',
+      render: (_: any, r: Pqrs) => <div>{estadoBadge(r.estado)}</div>,
     },
     ...(isAdmin ? [{
       title: 'Acciones',
@@ -382,7 +379,7 @@ export default function PqrsPage() {
 
   // ─── render ───────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-5xl mx-auto pt-2 pb-20">
+    <div className="max-w-7xl mx-auto pt-2 pb-20 px-4">
 
       {/* Breadcrumb */}
       <Breadcrumb

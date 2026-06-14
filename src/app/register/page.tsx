@@ -41,7 +41,28 @@ const RegisterPage = () => {
         router.push('/');
       } else {
         const errorData = await response.json().catch(() => null);
-        message.error(errorData?.message || 'Hubo un error al registrar el usuario');
+        let errorMsg = 'Hubo un error al registrar el usuario';
+        
+        if (errorData) {
+          const bodyStr = typeof errorData.body === 'string' ? errorData.body : '';
+          const messageStr = typeof errorData.message === 'string' ? errorData.message : '';
+          const errorText = `${bodyStr} ${messageStr}`.toLowerCase();
+
+          if (errorText.includes('duplicate entry')) {
+            if (errorText.includes('primary')) {
+              errorMsg = 'Esta identificación (cédula) ya se encuentra registrada.';
+            } else if (errorText.includes('correo') || errorText.includes('email') || errorText.includes('key_correo')) {
+              errorMsg = 'Este correo electrónico ya se encuentra registrado.';
+            } else {
+              errorMsg = 'La identificación o el correo ya se encuentran registrados.';
+            }
+          } else if (errorData.message) {
+            errorMsg = errorData.message;
+          } else if (typeof errorData.body === 'string') {
+            errorMsg = errorData.body;
+          }
+        }
+        message.error(errorMsg);
       }
     } catch (error) {
       console.error('Error enviando datos:', error);
