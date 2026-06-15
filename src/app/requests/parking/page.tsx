@@ -1,17 +1,17 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { 
-  Typography, 
-  Card, 
-  Button, 
-  Segmented, 
-  Form, 
-  Input, 
-  Select, 
-  Table, 
-  Tag, 
-  Space, 
+import {
+  Typography,
+  Card,
+  Button,
+  Segmented,
+  Form,
+  Input,
+  Select,
+  Table,
+  Tag,
+  Space,
   Badge,
   Empty,
   App as AntdApp,
@@ -20,13 +20,15 @@ import {
   Upload,
   Divider as AntdDivider,
   Image,
-  Tooltip
+  Tooltip,
+  Modal
 } from 'antd';
 import { API_ROUTES } from '@/config/api';
-import { 
-  PlusOutlined, 
-  HistoryOutlined, 
-  CarOutlined, 
+import { useAuth } from '@/context/AuthContext';
+import {
+  PlusOutlined,
+  HistoryOutlined,
+  CarOutlined,
   SendOutlined,
   CalendarOutlined,
   InfoCircleOutlined,
@@ -35,7 +37,8 @@ import {
   UploadOutlined,
   FileTextOutlined,
   EyeOutlined,
-  FilePdfOutlined
+  FilePdfOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 
 const { Title, Text, Paragraph } = Typography;
@@ -59,14 +62,99 @@ interface SolicitudParqueadero {
   soatUrl: string | null;
   tecnoMecanicaUrl: string | null;
   tarjetaPropiedadUrl: string | null;
+  fechaRespuesta?: string | null;
+  estado?: string | null;
 }
+
+const formatDate = (d: string | null | undefined) => {
+  if (!d) return '—';
+  try {
+    return new Date(d).toLocaleDateString('es-CO', {
+      year: 'numeric', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+  } catch { return d; }
+};
 
 export default function ParkingRequestsPage() {
   const { message } = AntdApp.useApp();
+  const { user } = useAuth();
   const [form] = Form.useForm();
   const [activeView, setActiveView] = useState<'new' | 'history'>('new');
   const [loading, setLoading] = useState(false);
   const [historyData, setHistoryData] = useState<SolicitudParqueadero[]>([]);
+
+  const isAdmin = user?.rol?.toLowerCase() === 'administrador';
+  const cedulaUsuario = String(user?.cedula || '');
+
+  const filteredHistoryData = (Array.isArray(historyData) ? historyData : [])
+    .filter(record => {
+      if (isAdmin) return true;
+      const recordCedula = record.idPropietario !== "0" ? record.idPropietario : record.idArrendatario;
+      return recordCedula === cedulaUsuario;
+    });
+
+  const [replyingTo, setReplyingTo] = useState<SolicitudParqueadero | null>(null);
+  const [replyForm] = Form.useForm();
+
+  const handleOpenReply = (record: SolicitudParqueadero) => {
+    setReplyingTo(record);
+
+    // 1. Capturamos el estado actual que viene de la base de datos
+    const currentEstado = record.estado || record.aprobado;
+
+    // 2. Definimos los estados válidos de nuestro sistema en un array
+    const estadosValidos = ['Pendiente', 'Aprobado', 'Rechazado'];
+
+    replyForm.setFieldsValue({
+      // Si currentEstado es uno de los válidos, lo asignamos. Si es '1', mapeamos a 'Aprobado'. 
+      // Si es cualquier otra cosa o viene vacío, por defecto será 'Pendiente'.
+      estado: currentEstado === '1' ? 'Aprobado' : (estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
+
+      observaciones: record.observaciones || ''
+    });
+  };
+
+  const handleSendReply = async (values: any) => {
+    if (!replyingTo) return;
+    setLoading(true);
+
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const now = new Date();
+    const localIsoString = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+    const payload = {
+      id: replyingTo.idSolicitudParqueadero,
+      estado: values.estado,
+      observaciones: values.observaciones,
+      fechaRespuesta: localIsoString
+    };
+
+    try {
+      const res = await fetch(`${API_ROUTES.PARKING}/gestionar`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        message.success(data.body || 'La solicitud fue gestionada con éxito.');
+        setReplyingTo(null);
+        replyForm.resetFields();
+        fetchHistory();
+      } else {
+        message.error(data.body || 'Error al gestionar la solicitud.');
+      }
+    } catch (error) {
+      console.error(error);
+      message.error('Error de conexión con el servidor.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -95,13 +183,13 @@ export default function ParkingRequestsPage() {
 
   const onFinish = async (values: any) => {
     setLoading(true);
-    
+
     // Determine IDs based on role
     const idPropietario = values.rolSolicitante === 'propietario' ? values.cedula : "0";
     const idArrendatario = values.rolSolicitante === 'arrendatario' ? values.cedula : "0";
 
     const formData = new FormData();
-    
+
     // Append text fields
     formData.append('tipoParqueadero', values.tipoParqueadero);
     formData.append('placa', values.placa);
@@ -150,6 +238,13 @@ export default function ParkingRequestsPage() {
 
   const columns = [
     {
+      title: 'N°',
+      dataIndex: 'idSolicitudParqueadero',
+      key: 'idSolicitudParqueadero',
+      width: 60,
+      render: (v: number) => <span className="font-mono font-bold text-slate-400 text-xs">#{v}</span>,
+    },
+    {
       title: 'Placa',
       dataIndex: 'placa',
       key: 'placa',
@@ -188,34 +283,41 @@ export default function ParkingRequestsPage() {
       sorter: (a: SolicitudParqueadero, b: SolicitudParqueadero) => a.tipoParqueadero.localeCompare(b.tipoParqueadero),
     },
     {
-      title: 'Discapacidad',
+      title: (
+        <div className="leading-tight text-center">
+          Disca-<br />pacidad
+        </div>
+      ),
       dataIndex: 'discapacidad',
       key: 'discapacidad',
-      render: (val: string) => val === "1" ? <Tag color="cyan">Sí</Tag> : <Text className="text-slate-400">No</Text>,
+      width: 70,
+      align: 'center' as const,
+      render: (val: string) => val === "1" ? <Tag color="cyan" className="m-0">Sí</Tag> : <Text className="text-slate-400">No</Text>,
       sorter: (a: SolicitudParqueadero, b: SolicitudParqueadero) => a.discapacidad.localeCompare(b.discapacidad),
     },
     {
-      title: 'Documentos',
+      title: 'DOC',
       key: 'documentos',
+      width: 60,
+      align: 'center' as const,
       render: (_: any, record: SolicitudParqueadero) => {
         const docs = [
           { key: 'soat', label: 'SOAT', file: record.soat, url: record.soat ? `${API_ROUTES.UPLOAD_DIR}${record.soat}` : null },
           { key: 'tecno', label: 'Tecno', file: record.tecnoMecanica, url: record.tecnoMecanica ? `${API_ROUTES.UPLOAD_DIR}${record.tecnoMecanica}` : null },
           { key: 'tarjeta', label: 'Tarjeta', file: record.tarjetaPropiedad, url: record.tarjetaPropiedad ? `${API_ROUTES.UPLOAD_DIR}${record.tarjetaPropiedad}` : null },
         ];
-
         return (
-          <Space size="small">
+          <div className="flex flex-col gap-1 items-center">
             {docs.map(doc => {
               if (!doc.url) return <Tag key={doc.key} className="m-0 text-[10px] opacity-40">N/A</Tag>;
-              
+
               const isPdf = doc.file?.toLowerCase().endsWith('.pdf');
-              
+
               return (
                 <Tooltip title={`Ver ${doc.label}`} key={doc.key}>
                   {isPdf ? (
-                    <Button 
-                      icon={<FilePdfOutlined className="text-red-500" />} 
+                    <Button
+                      icon={<FilePdfOutlined className="text-red-500" />}
                       className="w-10 h-10 rounded-lg flex items-center justify-center border-slate-200 hover:border-red-400"
                       onClick={() => window.open(doc.url as string, '_blank')}
                     />
@@ -227,40 +329,71 @@ export default function ParkingRequestsPage() {
                       fallback="https://placehold.co/40x40?text=Doc"
                       className="rounded-lg object-cover cursor-pointer border border-slate-200 hover:border-emerald-500 transition-colors"
                       preview={{
-                        mask: <EyeOutlined className="text-xs" />,
+                        cover: <EyeOutlined className="text-xs" />,
                       }}
                     />
                   )}
                 </Tooltip>
               );
             })}
-          </Space>
+          </div>
         );
       }
     },
     {
-      title: 'Fecha',
+      title: 'Observaciones',
+      dataIndex: 'observaciones',
+      key: 'observaciones',
+      width: 250,
+      render: (v: string) => (
+        <Text className="text-slate-600 whitespace-pre-wrap break-words block">{v || '—'}</Text>
+      ),
+    },
+    {
+      title: 'Fecha Creacion',
       dataIndex: 'fechaSolicitud',
       key: 'fechaSolicitud',
-      render: (date: string) => new Date(date).toLocaleDateString('es-ES'),
+      render: (date: string) => formatDate(date),
       sorter: (a: SolicitudParqueadero, b: SolicitudParqueadero) => new Date(a.fechaSolicitud).getTime() - new Date(b.fechaSolicitud).getTime(),
       defaultSortOrder: 'descend' as const,
     },
     {
+      title: 'Fecha Respuesta',
+      dataIndex: 'fechaRespuesta',
+      key: 'fechaRespuesta',
+      render: (date: string) => formatDate(date),
+    },
+    {
       title: 'Estado',
-      dataIndex: 'aprobado',
-      key: 'aprobado',
-      render: (aprobado: string | null) => {
-        if (aprobado === "0") return <Badge status="warning" text="Pendiente" />;
-        if (aprobado === "1") return <Badge status="success" text="Aprobado" />;
-        return <Badge status="default" text="Sin Estado" />;
+      key: 'estado',
+      render: (_: any, record: SolicitudParqueadero) => {
+        const estado = record.estado || record.aprobado;
+        if (estado === "0" || estado === "Pendiente") return <Badge status="warning" text="Pendiente" />;
+        if (estado === "1" || estado === "Aprobado") return <Badge status="success" text="Aprobado" />;
+        if (estado === "Rechazado") return <Badge status="error" text="Rechazado" />;
+        return <Badge status="default" text={estado || "Sin Estado"} />;
       },
-      sorter: (a: SolicitudParqueadero, b: SolicitudParqueadero) => (a.aprobado || "").localeCompare(b.aprobado || ""),
-    }
+      sorter: (a: SolicitudParqueadero, b: SolicitudParqueadero) => (a.estado || a.aprobado || "").localeCompare(b.estado || b.aprobado || ""),
+    },
+    ...(isAdmin ? [{
+      title: 'Acción',
+      key: 'acciones',
+      render: (_: any, record: SolicitudParqueadero) => (
+        <Button
+          size="small"
+          type="primary"
+          ghost
+          className="border-emerald-500 text-emerald-600 hover:!bg-emerald-50 rounded-lg font-bold"
+          onClick={() => handleOpenReply(record)}
+        >
+          {record.fechaRespuesta ? 'Editar Respuesta' : 'Responder'}
+        </Button>
+      ),
+    }] : [])
   ];
 
   return (
-    <div className="max-w-5xl mx-auto pb-20">
+    <div className={`${activeView === 'history' ? 'max-w-[95%]' : 'max-w-5xl'} mx-auto pb-20 px-4 transition-all duration-300`}>
       {/* Header Section */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
         <div>
@@ -311,13 +444,13 @@ export default function ParkingRequestsPage() {
                   <Paragraph className="text-slate-500">Completa los datos para solicitar un espacio de parqueo conforme al sistema.</Paragraph>
                 </div>
 
-                <Form 
+                <Form
                   form={form}
-                  layout="vertical" 
+                  layout="vertical"
                   onFinish={onFinish}
                   className="space-y-6"
-                  initialValues={{ 
-                    tipoParqueadero: 'Carro', 
+                  initialValues={{
+                    tipoParqueadero: 'Carro',
                     discapacidad: false,
                     rolSolicitante: 'propietario',
                     docSoat: [],
@@ -366,9 +499,9 @@ export default function ParkingRequestsPage() {
                   </AntdDivider>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-                    <Form.Item 
-                      name="docSoat" 
-                      label={<Text className="font-bold text-slate-700 text-xs">SOAT Vigente</Text>} 
+                    <Form.Item
+                      name="docSoat"
+                      label={<Text className="font-bold text-slate-700 text-xs">SOAT Vigente</Text>}
                       required
                       valuePropName="fileList"
                       getValueFromEvent={(e) => {
@@ -382,9 +515,9 @@ export default function ParkingRequestsPage() {
                         </Button>
                       </Upload>
                     </Form.Item>
-                    <Form.Item 
-                      name="docTecno" 
-                      label={<Text className="font-bold text-slate-700 text-xs">Tecnomecánica</Text>} 
+                    <Form.Item
+                      name="docTecno"
+                      label={<Text className="font-bold text-slate-700 text-xs">Tecnomecánica</Text>}
                       required
                       valuePropName="fileList"
                       getValueFromEvent={(e) => {
@@ -398,9 +531,9 @@ export default function ParkingRequestsPage() {
                         </Button>
                       </Upload>
                     </Form.Item>
-                    <Form.Item 
-                      name="docTarjeta" 
-                      label={<Text className="font-bold text-slate-700 text-xs">Tarjeta Propiedad</Text>} 
+                    <Form.Item
+                      name="docTarjeta"
+                      label={<Text className="font-bold text-slate-700 text-xs">Tarjeta Propiedad</Text>}
                       required
                       valuePropName="fileList"
                       getValueFromEvent={(e) => {
@@ -420,11 +553,11 @@ export default function ParkingRequestsPage() {
                     <TextArea rows={4} placeholder="Detalles adicionales..." className="rounded-2xl resize-none p-4" />
                   </Form.Item>
 
-                  <Button 
-                    type="primary" 
+                  <Button
+                    type="primary"
                     htmlType="submit"
-                    size="large" 
-                    block 
+                    size="large"
+                    block
                     loading={loading}
                     icon={<SendOutlined />}
                     className="h-14 bg-emerald-500 hover:!bg-emerald-600 border-none rounded-2xl text-lg font-black shadow-lg shadow-emerald-500/20 transition-all hover:-translate-y-1"
@@ -477,19 +610,20 @@ export default function ParkingRequestsPage() {
                   <Button icon={<HistoryOutlined />} onClick={fetchHistory} loading={loading} className="rounded-xl font-bold">Refrescar</Button>
                 </Space>
               </div>
-              
-              <Table 
-                columns={columns} 
-                dataSource={historyData} 
+
+              <Table
+                columns={columns}
+                dataSource={filteredHistoryData}
                 rowKey="idSolicitudParqueadero"
                 loading={loading}
                 pagination={{ pageSize: 5 }}
+                scroll={{ x: true }}
                 className="custom-table"
                 locale={{
                   emptyText: (
-                    <Empty 
-                      image={Empty.PRESENTED_IMAGE_SIMPLE} 
-                      description="No hay solicitudes registradas" 
+                    <Empty
+                      image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      description="No hay solicitudes registradas"
                     />
                   )
                 }}
@@ -498,6 +632,51 @@ export default function ParkingRequestsPage() {
           </Card>
         </div>
       )}
+
+      {/* Modal de Respuesta */}
+      <Modal
+        title={<div className="flex items-center gap-2"><MessageOutlined className="text-emerald-500" /> Gestionar Solicitud de Parqueadero #{replyingTo?.idSolicitudParqueadero}</div>}
+        open={!!replyingTo}
+        onCancel={() => {
+          setReplyingTo(null);
+          replyForm.resetFields();
+        }}
+        onOk={() => replyForm.submit()}
+        okText="Enviar Respuesta"
+        cancelText="Cancelar"
+        confirmLoading={loading}
+        okButtonProps={{ className: 'bg-emerald-500 hover:!bg-emerald-600 border-none' }}
+      >
+        <Form form={replyForm} onFinish={handleSendReply} layout="vertical" className="mt-4">
+          <div className="mb-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <div className="grid grid-cols-2 gap-2 mb-2 text-xs text-slate-500">
+              <div><span className="font-bold">Placa:</span> {replyingTo?.placa}</div>
+              <div><span className="font-bold">Apto:</span> {replyingTo?.idApartamento}</div>
+              <div><span className="font-bold">Tipo:</span> {replyingTo?.tipoParqueadero}</div>
+              <div><span className="font-bold">Discapacidad:</span> {replyingTo?.discapacidad === "1" ? "Sí" : "No"}</div>
+            </div>
+            <Divider className="border-slate-200 my-2" />
+            <Text className="font-bold text-slate-700 block mb-1 text-xs">Observaciones del usuario:</Text>
+            <Text className="text-slate-600 italic text-xs">{replyingTo?.observaciones || 'Sin observaciones'}</Text>
+          </div>
+
+          <Form.Item name="estado" label={<Text className="font-bold text-slate-700">Estado de la Solicitud</Text>} rules={[{ required: true }]}>
+            <Select>
+              <Select.Option value="Aprobado">Aprobado</Select.Option>
+              <Select.Option value="Rechazado">Rechazado</Select.Option>
+              <Select.Option value="Pendiente">Pendiente</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="observaciones" label={<Text className="font-bold text-slate-700">Observaciones / Respuesta</Text>} rules={[{ required: true, message: 'Por favor escribe una observación' }]}>
+            <TextArea
+              rows={4}
+              placeholder="Ej: Documentación de SOAT y Técnico-Mecánica vigentes. Se asigna de forma temporal el cupo..."
+              className="rounded-xl resize-none p-3"
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <style jsx global>{`
         .custom-segmented { background: transparent !important; padding: 4px !important; }

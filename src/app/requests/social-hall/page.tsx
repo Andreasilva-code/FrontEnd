@@ -17,9 +17,12 @@ import {
   Radio,
   DatePicker,
   Select,
-  Divider as AntdDivider
+  Divider as AntdDivider,
+  Modal,
+  Tooltip
 } from 'antd';
 import { API_ROUTES } from '@/config/api';
+import { useAuth } from '@/context/AuthContext';
 import { 
   PlusOutlined, 
   HistoryOutlined, 
@@ -28,7 +31,8 @@ import {
   CalendarOutlined,
   InfoCircleOutlined,
   ClockCircleOutlined,
-  FileTextOutlined
+  FileTextOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
@@ -45,14 +49,113 @@ interface SolicitudSalon {
   aprobado: string;
   idPropietario: string | null;
   idArrendatario: string | null;
+  fechaRespuesta?: string | null;
+  estado?: string | null;
+  observaciones?: string | null;
 }
 
 export default function SocialHallRequestsPage() {
   const { message } = AntdApp.useApp();
+  const { user } = useAuth();
   const [form] = Form.useForm();
   const [activeView, setActiveView] = useState<'new' | 'history'>('new');
   const [loading, setLoading] = useState(false);
   const [historyData, setHistoryData] = useState<SolicitudSalon[]>([]);
+
+  const isAdmin = user?.rol?.toLowerCase() === 'administrador';
+  const cedulaUsuario = String(user?.cedula || '');
+
+  const filteredHistoryData = (Array.isArray(historyData) ? historyData : [])
+    .filter(record => {
+      if (isAdmin) return true;
+      const recordCedula = (record.idPropietario && record.idPropietario !== "0") ? record.idPropietario : record.idArrendatario;
+      return recordCedula === cedulaUsuario;
+    });
+
+  const [selectedSalon, setSelectedSalon] = useState<number>(1);
+
+  const activeReservations = (Array.isArray(historyData) ? historyData : []).filter(record => {
+    const estado = record.estado || record.aprobado;
+    return estado === "Aprobado" || estado === "1" || estado === "Pendiente" || estado === "0";
+  });
+
+  const reservedDates = activeReservations
+    .filter(record => record.idSalonSocial === selectedSalon)
+    .map(record => dayjs(record.fechaEvento).format('YYYY-MM-DD'));
+
+  const disabledDate = (current: any) => {
+    if (!current) return false;
+    const dateStr = current.format('YYYY-MM-DD');
+    return reservedDates.includes(dateStr);
+  };
+
+  const cellRender = (current: any, info: any) => {
+    if (info.type !== 'date') return info.originNode;
+    const dateStr = current.format('YYYY-MM-DD');
+    const isReserved = reservedDates.includes(dateStr);
+    if (isReserved) {
+      return (
+        <Tooltip title="Fecha ya reservada">
+          <div className="ant-picker-cell-inner" style={{ border: '1px solid #ff4d4f', color: '#ff4d4f', borderRadius: '50%' }}>
+            {current.date()}
+          </div>
+        </Tooltip>
+      );
+    }
+    return info.originNode;
+  };
+
+  const [replyingTo, setReplyingTo] = useState<SolicitudSalon | null>(null);
+  const [replyForm] = Form.useForm();
+
+  const handleOpenReply = (record: SolicitudSalon) => {
+    setReplyingTo(record);
+    const currentEstado = record.estado || record.aprobado;
+    const estadosValidos = ['Pendiente', 'Aprobado', 'Rechazado'];
+
+    replyForm.setFieldsValue({
+      estado: currentEstado === '1' ? 'Aprobado' : (estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
+      observaciones: record.observaciones || '',
+      idSalonSocial: record.idSalonSocial || 1
+    });
+  };
+
+  const handleSendReply = async (values: any) => {
+    if (!replyingTo) return;
+    setLoading(true);
+
+    const payload = {
+      id: replyingTo.idsolicitudsalonessociales,
+      estado: values.estado,
+      observaciones: values.observaciones,
+      idSalonSocial: values.idSalonSocial
+    };
+
+    try {
+      const res = await fetch(API_ROUTES.SOCIAL_HALL, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        message.success(data.body || 'Solicitud de salón social actualizada con éxito');
+        setReplyingTo(null);
+        replyForm.resetFields();
+        fetchHistory();
+      } else {
+        message.error(data.body || 'Error al gestionar la solicitud.');
+      }
+    } catch (error) {
+      console.error(error);
+      message.error('Error de conexión con el servidor.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -74,26 +177,34 @@ export default function SocialHallRequestsPage() {
   };
 
   useEffect(() => {
-    if (activeView === 'history') {
-      fetchHistory();
-    }
+    fetchHistory();
   }, [activeView]);
 
   const onFinish = async (values: any) => {
     setLoading(true);
+
+    const requestedDateStr = values.fechaEvento.format('YYYY-MM-DD');
+    if (reservedDates.includes(requestedDateStr)) {
+      message.error("La fecha seleccionada ya se encuentra reservada para este salón.");
+      setLoading(false);
+      return;
+    }
     
-    const idPropietario = values.rolSolicitante === 'propietario' ? values.cedula : "0";
-    const idArrendatario = values.rolSolicitante === 'arrendatario' ? values.cedula : "0";
+    const idPropietario = values.rolSolicitante === 'propietario' 
+      ? (isNaN(Number(values.cedula)) ? values.cedula : parseInt(values.cedula)) 
+      : "0";
+    const idArrendatario = values.rolSolicitante === 'arrendatario' 
+      ? (isNaN(Number(values.cedula)) ? values.cedula : parseInt(values.cedula)) 
+      : "0";
 
     const payload = {
+      fechaSolicitud: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
       idSalonSocial: values.idSalonSocial,
-      idApartamento: parseInt(values.idApartamento),
-      fechaEvento: values.fechaEvento.format('YYYY-MM-DD HH:mm:ss'),
+      fechaEvento: values.fechaEvento.format('YYYY-MM-DDTHH:mm:ss'),
       Observaciones: values.Observaciones || "NA",
+      estado: "Pendiente",
       idPropietario: idPropietario,
-      idArrendatario: idArrendatario,
-      fechaSolicitud: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      aprobado: "0"
+      idArrendatario: idArrendatario
     };
 
     try {
@@ -109,7 +220,7 @@ export default function SocialHallRequestsPage() {
         setActiveView('history');
       } else {
         const errorData = await response.json().catch(() => ({}));
-        message.error(errorData.mensaje || 'Error al enviar la solicitud');
+        message.error(errorData.body || errorData.mensaje || 'Error al enviar la solicitud');
       }
     } catch (error) {
       console.error("Error al enviar solicitud:", error);
@@ -152,6 +263,16 @@ export default function SocialHallRequestsPage() {
       sorter: (a: SolicitudSalon, b: SolicitudSalon) => a.idApartamento - b.idApartamento,
     },
     {
+      title: 'OBSERVACIONES',
+      key: 'observaciones',
+      width: 250,
+      render: (_: any, r: SolicitudSalon) => (
+        <Text className="text-slate-600 whitespace-pre-wrap break-words block">
+          {r.observaciones || r.Observaciones || '—'}
+        </Text>
+      ),
+    },
+    {
       title: 'Salón',
       dataIndex: 'idSalonSocial',
       key: 'idSalonSocial',
@@ -166,28 +287,51 @@ export default function SocialHallRequestsPage() {
       sorter: (a: SolicitudSalon, b: SolicitudSalon) => dayjs(a.fechaEvento).unix() - dayjs(b.fechaEvento).unix(),
     },
     {
-      title: 'Estado',
-      dataIndex: 'aprobado',
-      key: 'aprobado',
-      render: (aprobado: string) => {
-        if (aprobado === "0") return <Badge status="warning" text="Pendiente" />;
-        if (aprobado === "1") return <Badge status="success" text="Aprobado" />;
-        return <Badge status="default" text="Sin Estado" />;
-      },
-      sorter: (a: SolicitudSalon, b: SolicitudSalon) => a.aprobado.localeCompare(b.aprobado),
-    },
-    {
-      title: 'Solicitud',
+      title: 'FECHA CREACION',
       dataIndex: 'fechaSolicitud',
       key: 'fechaSolicitud',
-      render: (date: string) => dayjs(date).format('DD/MM/YYYY'),
+      render: (date: string) => date ? dayjs(date).format('DD/MM/YYYY HH:mm') : '—',
       sorter: (a: SolicitudSalon, b: SolicitudSalon) => dayjs(a.fechaSolicitud).unix() - dayjs(b.fechaSolicitud).unix(),
       defaultSortOrder: 'descend' as const,
-    }
+    },
+    {
+      title: 'FECHA RESPUESTA',
+      dataIndex: 'fechaRespuesta',
+      key: 'fechaRespuesta',
+      render: (date: string) => date ? dayjs(date).format('DD/MM/YYYY HH:mm') : '—',
+      sorter: (a: SolicitudSalon, b: SolicitudSalon) => dayjs(a.fechaRespuesta).unix() - dayjs(b.fechaRespuesta).unix(),
+    },
+    {
+      title: 'ESTADO',
+      key: 'estado',
+      render: (_: any, record: SolicitudSalon) => {
+        const estado = record.estado || record.aprobado;
+        if (estado === "0" || estado === "Pendiente") return <Badge status="warning" text="Pendiente" />;
+        if (estado === "1" || estado === "Aprobado") return <Badge status="success" text="Aprobado" />;
+        if (estado === "Rechazado") return <Badge status="error" text="Rechazado" />;
+        return <Badge status="default" text={estado || "Sin Estado"} />;
+      },
+      sorter: (a: SolicitudSalon, b: SolicitudSalon) => (a.estado || a.aprobado || "").localeCompare(b.estado || b.aprobado || ""),
+    },
+    ...(isAdmin ? [{
+      title: 'Acción',
+      key: 'acciones',
+      render: (_: any, record: SolicitudSalon) => (
+        <Button
+          size="small"
+          type="primary"
+          ghost
+          className="border-emerald-500 text-emerald-600 hover:!bg-emerald-50 rounded-lg font-bold"
+          onClick={() => handleOpenReply(record)}
+        >
+          {record.fechaRespuesta ? 'Editar Respuesta' : 'Responder'}
+        </Button>
+      ),
+    }] : [])
   ];
 
   return (
-    <div className="max-w-5xl mx-auto pb-20">
+    <div className={`${activeView === 'history' ? 'max-w-[95%]' : 'max-w-5xl'} mx-auto pb-20 px-4 transition-all duration-300`}>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
         <div>
           <Title level={1} className="!text-slate-900 !mb-1 !font-black tracking-tight">Solicitudes Salón Social</Title>
@@ -240,6 +384,11 @@ export default function SocialHallRequestsPage() {
                   form={form}
                   layout="vertical" 
                   onFinish={onFinish}
+                  onValuesChange={(changedValues) => {
+                    if (changedValues.idSalonSocial !== undefined) {
+                      setSelectedSalon(changedValues.idSalonSocial);
+                    }
+                  }}
                   className="space-y-6"
                   initialValues={{ 
                     rolSolicitante: 'propietario',
@@ -259,9 +408,6 @@ export default function SocialHallRequestsPage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Form.Item name="idApartamento" label={<Text className="font-bold text-slate-700">Apartamento</Text>} rules={[{ required: true }]}>
-                      <Input size="large" placeholder="Ej: 4103" className="rounded-xl" />
-                    </Form.Item>
                     <Form.Item name="idSalonSocial" label={<Text className="font-bold text-slate-700">Seleccionar Salón</Text>} rules={[{ required: true }]}>
                       <Select size="large" className="custom-select">
                         <Select.Option value={1}>Salón Principal (1)</Select.Option>
@@ -278,6 +424,22 @@ export default function SocialHallRequestsPage() {
                         format="DD/MM/YYYY HH:mm" 
                         className="w-full rounded-xl"
                         placeholder="Seleccionar fecha"
+                        disabledDate={disabledDate}
+                        cellRender={cellRender}
+                        dateRender={(current) => {
+                          const dateStr = current.format('YYYY-MM-DD');
+                          const isReserved = reservedDates.includes(dateStr);
+                          if (isReserved) {
+                            return (
+                              <Tooltip title="Fecha ya reservada">
+                                <div className="ant-picker-cell-inner" style={{ border: '1px solid #ff4d4f', color: '#ff4d4f', borderRadius: '50%' }}>
+                                  {current.date()}
+                                </div>
+                              </Tooltip>
+                            );
+                          }
+                          return <div className="ant-picker-cell-inner">{current.date()}</div>;
+                        }}
                       />
                     </Form.Item>
                   </div>
@@ -344,7 +506,7 @@ export default function SocialHallRequestsPage() {
               
               <Table 
                 columns={columns} 
-                dataSource={historyData} 
+                dataSource={filteredHistoryData} 
                 rowKey="idsolicitudsalonessociales"
                 loading={loading}
                 pagination={{ pageSize: 5 }}
@@ -362,6 +524,56 @@ export default function SocialHallRequestsPage() {
           </Card>
         </div>
       )}
+
+      {/* Modal de Respuesta */}
+      <Modal
+        title={<div className="flex items-center gap-2"><MessageOutlined className="text-purple-600" /> Gestionar Reserva de Salón Social #{replyingTo?.idsolicitudsalonessociales}</div>}
+        open={!!replyingTo}
+        onCancel={() => {
+          setReplyingTo(null);
+          replyForm.resetFields();
+        }}
+        onOk={() => replyForm.submit()}
+        okText="Enviar Respuesta"
+        cancelText="Cancelar"
+        confirmLoading={loading}
+        okButtonProps={{ className: 'bg-purple-600 hover:!bg-purple-700 border-none' }}
+      >
+        <Form form={replyForm} onFinish={handleSendReply} layout="vertical" className="mt-4">
+          <div className="mb-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <div className="grid grid-cols-2 gap-2 mb-2 text-xs text-slate-500">
+              <div><span className="font-bold">Apto:</span> {replyingTo?.idApartamento}</div>
+              <div><span className="font-bold">Fecha Evento:</span> {replyingTo?.fechaEvento ? dayjs(replyingTo.fechaEvento).format('DD/MM/YYYY HH:mm') : ''}</div>
+            </div>
+            <AntdDivider className="border-slate-200 my-2" />
+            <Text className="font-bold text-slate-700 block mb-1 text-xs">Observaciones del usuario:</Text>
+            <Text className="text-slate-600 italic text-xs">{replyingTo?.Observaciones || 'Sin observaciones'}</Text>
+          </div>
+
+          <Form.Item name="idSalonSocial" label={<Text className="font-bold text-slate-700">Asignar Salón</Text>} rules={[{ required: true }]}>
+            <Select>
+              <Select.Option value={1}>Salón Principal (1)</Select.Option>
+              <Select.Option value={2}>Salón Auxiliar (2)</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="estado" label={<Text className="font-bold text-slate-700">Estado de la Reserva</Text>} rules={[{ required: true }]}>
+            <Select>
+              <Select.Option value="Aprobado">Aprobado</Select.Option>
+              <Select.Option value="Rechazado">Rechazado</Select.Option>
+              <Select.Option value="Pendiente">Pendiente</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="observaciones" label={<Text className="font-bold text-slate-700">Observaciones / Respuesta</Text>} rules={[{ required: true, message: 'Por favor escribe una observación' }]}>
+            <TextArea
+              rows={4}
+              placeholder="Ej: Aprobado para salón principal..."
+              className="rounded-xl resize-none p-3"
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <style jsx global>{`
         .custom-segmented { background: transparent !important; padding: 4px !important; }

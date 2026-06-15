@@ -296,7 +296,7 @@ export default function PqrsPage() {
       render: (v: string) => <Text className="font-mono text-slate-500 text-xs">{v}</Text>,
     }] : []),
     {
-      title: 'Apartamento',
+      title: 'APTO',
       dataIndex: 'numeroApartamento',
       key: 'numeroApartamento',
       render: (v: any, r: Pqrs) => <Text className="font-bold text-slate-600 text-xs">{r.numeroApartamento || v || '—'}</Text>,
@@ -379,7 +379,7 @@ export default function PqrsPage() {
 
   // ─── render ───────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-7xl mx-auto pt-2 pb-20 px-4">
+    <div className={`${activeView === 'history' ? 'max-w-[95%]' : 'max-w-7xl'} mx-auto pt-2 pb-20 px-4 transition-all duration-300`}>
 
       {/* Breadcrumb */}
       <Breadcrumb

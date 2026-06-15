@@ -16,9 +16,12 @@ import {
   App as AntdApp,
   Radio,
   DatePicker,
-  Divider as AntdDivider
+  Divider as AntdDivider,
+  Modal,
+  Select
 } from 'antd';
 import { API_ROUTES } from '@/config/api';
+import { useAuth } from '@/context/AuthContext';
 import { 
   PlusOutlined, 
   HistoryOutlined, 
@@ -27,7 +30,8 @@ import {
   CalendarOutlined,
   InfoCircleOutlined,
   ClockCircleOutlined,
-  FileTextOutlined
+  FileTextOutlined,
+  MessageOutlined
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
@@ -43,14 +47,78 @@ interface SolicitudTrasteo {
   idArrendatario: string;
   idPropietario: string;
   aprobado: string;
+  numeroApartamento?: string | number;
+  fechaRespuesta?: string | null;
+  observaciones?: string | null;
 }
 
 export default function MovingRequestsPage() {
   const { message } = AntdApp.useApp();
+  const { user } = useAuth();
   const [form] = Form.useForm();
   const [activeView, setActiveView] = useState<'new' | 'history'>('new');
   const [loading, setLoading] = useState(false);
   const [historyData, setHistoryData] = useState<SolicitudTrasteo[]>([]);
+
+  const isAdmin = user?.rol?.toLowerCase() === 'administrador';
+  const cedulaUsuario = String(user?.cedula || '');
+
+  const filteredHistoryData = (Array.isArray(historyData) ? historyData : [])
+    .filter(record => {
+      if (isAdmin) return true;
+      const recordCedula = record.idPropietario !== "0" ? record.idPropietario : record.idArrendatario;
+      return recordCedula === cedulaUsuario;
+    });
+
+  const [replyingTo, setReplyingTo] = useState<SolicitudTrasteo | null>(null);
+  const [replyForm] = Form.useForm();
+
+  const handleOpenReply = (record: SolicitudTrasteo) => {
+    setReplyingTo(record);
+    const currentEstado = record.aprobado;
+    const estadosValidos = ['Pendiente', 'Aprobado', 'Rechazado'];
+
+    replyForm.setFieldsValue({
+      estado: currentEstado === '1' ? 'Aprobado' : (estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
+      observaciones: record.observaciones || ''
+    });
+  };
+
+  const handleSendReply = async (values: any) => {
+    if (!replyingTo) return;
+    setLoading(true);
+
+    const payload = {
+      id: replyingTo.idSolicitudTrasteos,
+      estado: values.estado,
+      observaciones: values.observaciones
+    };
+
+    try {
+      const res = await fetch(`${API_ROUTES.MOVING}/gestionar`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok && !data.error) {
+        message.success(data.body || 'La solicitud de mudanza ha sido gestionada y actualizada con éxito.');
+        setReplyingTo(null);
+        replyForm.resetFields();
+        fetchHistory();
+      } else {
+        message.error(data.body || 'Error al gestionar la solicitud.');
+      }
+    } catch (error) {
+      console.error(error);
+      message.error('Error de conexión con el servidor.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -144,9 +212,39 @@ export default function MovingRequestsPage() {
     },
     {
       title: 'Apto',
-      dataIndex: 'idApartamento',
-      key: 'idApartamento',
-      sorter: (a: SolicitudTrasteo, b: SolicitudTrasteo) => a.idApartamento.localeCompare(b.idApartamento),
+      dataIndex: 'numeroApartamento',
+      key: 'numeroApartamento',
+      render: (v: any, r: SolicitudTrasteo) => r.numeroApartamento || r.idApartamento || '—',
+      sorter: (a: SolicitudTrasteo, b: SolicitudTrasteo) => {
+        const aptoA = String(a.numeroApartamento || a.idApartamento || '');
+        const aptoB = String(b.numeroApartamento || b.idApartamento || '');
+        return aptoA.localeCompare(aptoB);
+      },
+    },
+    {
+      title: 'OBSERVACIONES',
+      key: 'observaciones',
+      width: 250,
+      render: (_: any, r: SolicitudTrasteo) => (
+        <Text className="text-slate-600 whitespace-pre-wrap break-words block">
+          {r.observaciones || r.Observaciones || '—'}
+        </Text>
+      ),
+    },
+    {
+      title: 'FECHA CREACION',
+      dataIndex: 'fechaSolicitud',
+      key: 'fechaSolicitud',
+      render: (date: string) => date ? dayjs(date).format('DD/MM/YYYY HH:mm') : '—',
+      sorter: (a: SolicitudTrasteo, b: SolicitudTrasteo) => dayjs(a.fechaSolicitud).unix() - dayjs(b.fechaSolicitud).unix(),
+      defaultSortOrder: 'descend' as const,
+    },
+    {
+      title: 'FECHA RESPUESTA',
+      dataIndex: 'fechaRespuesta',
+      key: 'fechaRespuesta',
+      render: (date: string) => date ? dayjs(date).format('DD/MM/YYYY HH:mm') : '—',
+      sorter: (a: SolicitudTrasteo, b: SolicitudTrasteo) => dayjs(a.fechaRespuesta).unix() - dayjs(b.fechaRespuesta).unix(),
     },
     {
       title: 'Fecha Trasteo',
@@ -157,27 +255,35 @@ export default function MovingRequestsPage() {
     },
     {
       title: 'Estado',
-      dataIndex: 'aprobado',
-      key: 'aprobado',
-      render: (aprobado: string) => {
-        if (aprobado === "0") return <Badge status="warning" text="Pendiente" />;
-        if (aprobado === "1") return <Badge status="success" text="Aprobado" />;
-        return <Badge status="default" text="Sin Estado" />;
+      key: 'estado',
+      render: (_: any, record: SolicitudTrasteo) => {
+        const estado = record.estado || record.aprobado;
+        if (estado === "0" || estado === "Pendiente") return <Badge status="warning" text="Pendiente" />;
+        if (estado === "1" || estado === "Aprobado") return <Badge status="success" text="Aprobado" />;
+        if (estado === "Rechazado") return <Badge status="error" text="Rechazado" />;
+        return <Badge status="default" text={estado || "Sin Estado"} />;
       },
-      sorter: (a: SolicitudTrasteo, b: SolicitudTrasteo) => a.aprobado.localeCompare(b.aprobado),
+      sorter: (a: SolicitudTrasteo, b: SolicitudTrasteo) => (a.estado || a.aprobado || "").localeCompare(b.estado || b.aprobado || ""),
     },
-    {
-      title: 'Solicitud',
-      dataIndex: 'fechaSolicitud',
-      key: 'fechaSolicitud',
-      render: (date: string) => dayjs(date).format('DD/MM/YYYY'),
-      sorter: (a: SolicitudTrasteo, b: SolicitudTrasteo) => dayjs(a.fechaSolicitud).unix() - dayjs(b.fechaSolicitud).unix(),
-      defaultSortOrder: 'descend' as const,
-    }
+    ...(isAdmin ? [{
+      title: 'Acción',
+      key: 'acciones',
+      render: (_: any, record: SolicitudTrasteo) => (
+        <Button
+          size="small"
+          type="primary"
+          ghost
+          className="border-emerald-500 text-emerald-600 hover:!bg-emerald-50 rounded-lg font-bold"
+          onClick={() => handleOpenReply(record)}
+        >
+          {record.fechaRespuesta ? 'Editar Respuesta' : 'Responder'}
+        </Button>
+      ),
+    }] : [])
   ];
 
   return (
-    <div className="max-w-5xl mx-auto pb-20">
+    <div className={`${activeView === 'history' ? 'max-w-[95%]' : 'max-w-5xl'} mx-auto pb-20 px-4 transition-all duration-300`}>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-6">
         <div>
           <Title level={1} className="!text-slate-900 !mb-1 !font-black tracking-tight">Solicitudes de Trasteos</Title>
@@ -324,7 +430,7 @@ export default function MovingRequestsPage() {
               
               <Table 
                 columns={columns} 
-                dataSource={historyData} 
+                dataSource={filteredHistoryData} 
                 rowKey="idSolicitudTrasteos"
                 loading={loading}
                 pagination={{ pageSize: 5 }}
@@ -342,6 +448,49 @@ export default function MovingRequestsPage() {
           </Card>
         </div>
       )}
+
+      {/* Modal de Respuesta */}
+      <Modal
+        title={<div className="flex items-center gap-2"><MessageOutlined className="text-blue-500" /> Gestionar Solicitud de Trasteo #{replyingTo?.idSolicitudTrasteos}</div>}
+        open={!!replyingTo}
+        onCancel={() => {
+          setReplyingTo(null);
+          replyForm.resetFields();
+        }}
+        onOk={() => replyForm.submit()}
+        okText="Enviar Respuesta"
+        cancelText="Cancelar"
+        confirmLoading={loading}
+        okButtonProps={{ className: 'bg-blue-600 hover:!bg-blue-700 border-none' }}
+      >
+        <Form form={replyForm} onFinish={handleSendReply} layout="vertical" className="mt-4">
+          <div className="mb-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <div className="grid grid-cols-2 gap-2 mb-2 text-xs text-slate-500">
+              <div><span className="font-bold">Apto:</span> {replyingTo?.numeroApartamento || replyingTo?.idApartamento}</div>
+              <div><span className="font-bold">Fecha Trasteo:</span> {replyingTo?.fechaTrasteo ? dayjs(replyingTo.fechaTrasteo).format('DD/MM/YYYY HH:mm') : ''}</div>
+            </div>
+            <AntdDivider className="border-slate-200 my-2" />
+            <Text className="font-bold text-slate-700 block mb-1 text-xs">Observaciones del usuario:</Text>
+            <Text className="text-slate-600 italic text-xs">{replyingTo?.Observaciones || 'Sin observaciones'}</Text>
+          </div>
+
+          <Form.Item name="estado" label={<Text className="font-bold text-slate-700">Estado de la Solicitud</Text>} rules={[{ required: true }]}>
+            <Select>
+              <Select.Option value="Aprobado">Aprobado</Select.Option>
+              <Select.Option value="Rechazado">Rechazado</Select.Option>
+              <Select.Option value="Pendiente">Pendiente</Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item name="observaciones" label={<Text className="font-bold text-slate-700">Observaciones / Respuesta</Text>} rules={[{ required: true, message: 'Por favor escribe una observación' }]}>
+            <TextArea
+              rows={4}
+              placeholder="Ej: Se aprueba pero recuerda el horario es de 8 a 5 pm de l-v y sabado de 8 a 12 m"
+              className="rounded-xl resize-none p-3"
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
 
       <style jsx global>{`
         .custom-segmented { background: transparent !important; padding: 4px !important; }

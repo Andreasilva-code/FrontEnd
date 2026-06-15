@@ -81,13 +81,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         label: <span className="font-medium">Parqueadero de Visitante</span>,
       },
     ] : []),
-    // Resto del menú: solo Admin (no vigilante, no propietario)
-    ...(isAuthenticated && !isVigilante ? [
+    // Residentes y Funcionarios: solo Admin
+    ...(isAdmin ? [
       {
         key: '/residents',
         icon: <UsergroupAddOutlined className="text-lg" />,
         label: <span className="font-medium">Residentes</span>,
       },
+      {
+        key: '/staff',
+        icon: <TeamOutlined className="text-lg" />,
+        label: <span className="font-medium">Funcionarios</span>,
+      },
+    ] : []),
+    // Resto del menú: solo Admin (no vigilante, no propietario)
+    ...(isAuthenticated && !isVigilante ? [
       {
         key: '/documents',
         icon: <FileTextOutlined className="text-lg" />,
@@ -114,11 +122,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
             label: <span className="font-medium">Solicitudes Trasteos</span>,
           },
         ]
-      },
-      {
-        key: '/staff',
-        icon: <TeamOutlined className="text-lg" />,
-        label: <span className="font-medium">Funcionarios</span>,
       },
       {
         key: '/settings',
