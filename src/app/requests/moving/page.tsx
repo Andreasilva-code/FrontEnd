@@ -152,7 +152,6 @@ export default function MovingRequestsPage() {
     const idArrendatario = values.rolSolicitante === 'arrendatario' ? values.cedula : "0";
 
     const payload = {
-      idApartamento: values.idApartamento,
       fechaTrasteo: values.fechaTrasteo.format('YYYY-MM-DD HH:mm:ss'),
       Observaciones: values.Observaciones || "NA",
       idPropietario: idPropietario,
@@ -174,7 +173,7 @@ export default function MovingRequestsPage() {
         setActiveView('history');
       } else {
         const errorData = await response.json().catch(() => ({}));
-        message.error(errorData.mensaje || 'Error al enviar la solicitud');
+        message.error(errorData.body || errorData.mensaje || 'Error al enviar la solicitud');
       }
     } catch (error) {
       console.error("Error al enviar solicitud:", error);

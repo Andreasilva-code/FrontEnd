@@ -426,20 +426,6 @@ export default function SocialHallRequestsPage() {
                         placeholder="Seleccionar fecha"
                         disabledDate={disabledDate}
                         cellRender={cellRender}
-                        dateRender={(current) => {
-                          const dateStr = current.format('YYYY-MM-DD');
-                          const isReserved = reservedDates.includes(dateStr);
-                          if (isReserved) {
-                            return (
-                              <Tooltip title="Fecha ya reservada">
-                                <div className="ant-picker-cell-inner" style={{ border: '1px solid #ff4d4f', color: '#ff4d4f', borderRadius: '50%' }}>
-                                  {current.date()}
-                                </div>
-                              </Tooltip>
-                            );
-                          }
-                          return <div className="ant-picker-cell-inner">{current.date()}</div>;
-                        }}
                       />
                     </Form.Item>
                   </div>

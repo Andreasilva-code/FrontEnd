@@ -1,6 +1,16 @@
-// Configuración centralizada de la API
-// Usamos variables de entorno para que sea fácil cambiar entre local y producción (Vercel)
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001/api';
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    // Si estamos en Vercel o producción, podemos usar la URL relativa o la env
+    if (hostname.includes('vercel.app')) {
+      return '/api';
+    }
+    return `http://${hostname}:3001/api`;
+  }
+  return 'http://localhost:3001/api';
+};
+
+const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || getApiBaseUrl();
 
 export const API_BASE_URL = BASE_URL;
 
