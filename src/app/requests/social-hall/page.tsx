@@ -68,8 +68,12 @@ export default function SocialHallRequestsPage() {
   const filteredHistoryData = (Array.isArray(historyData) ? historyData : [])
     .filter(record => {
       if (isAdmin) return true;
-      const recordCedula = (record.idPropietario && record.idPropietario !== "0") ? record.idPropietario : record.idArrendatario;
-      return recordCedula === cedulaUsuario;
+      const propId = record.idPropietario != null ? String(record.idPropietario).trim() : '';
+      const arrendId = record.idArrendatario != null ? String(record.idArrendatario).trim() : '';
+      const recordCedula = (propId && propId !== '0') ? propId : arrendId;
+
+      if (!cedulaUsuario) return true;
+      return String(recordCedula).trim() === cedulaUsuario.trim();
     });
 
   const [selectedSalon, setSelectedSalon] = useState<number>(1);
@@ -114,11 +118,17 @@ export default function SocialHallRequestsPage() {
     const estadosValidos = ['Pendiente', 'Aprobado', 'Rechazado'];
 
     replyForm.setFieldsValue({
-      estado: currentEstado === '1' ? 'Aprobado' : (estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
+      estado: currentEstado === '1' ? 'Aprobado' : (currentEstado && estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
       observaciones: record.observaciones || '',
       idSalonSocial: record.idSalonSocial || 1
     });
   };
+
+  useEffect(() => {
+    if (user?.cedula) {
+      form.setFieldsValue({ cedula: String(user.cedula) });
+    }
+  }, [user, form]);
 
   const handleSendReply = async (values: any) => {
     if (!replyingTo) return;
@@ -164,6 +174,10 @@ export default function SocialHallRequestsPage() {
       const data = await response.json();
       if (data && Array.isArray(data.body)) {
         setHistoryData(data.body);
+      } else if (Array.isArray(data)) {
+        setHistoryData(data);
+      } else if (data && Array.isArray(data.data)) {
+        setHistoryData(data.data);
       } else {
         setHistoryData([]);
       }
@@ -191,17 +205,17 @@ export default function SocialHallRequestsPage() {
     }
     
     const idPropietario = values.rolSolicitante === 'propietario' 
-      ? (isNaN(Number(values.cedula)) ? values.cedula : parseInt(values.cedula)) 
+      ? String(values.cedula)
       : "0";
     const idArrendatario = values.rolSolicitante === 'arrendatario' 
-      ? (isNaN(Number(values.cedula)) ? values.cedula : parseInt(values.cedula)) 
+      ? String(values.cedula)
       : "0";
 
     const payload = {
-      fechaSolicitud: dayjs().format('YYYY-MM-DDTHH:mm:ss'),
+      fechaSolicitud: dayjs().format('YYYY-MM-DD HH:mm:ss'),
       idSalonSocial: values.idSalonSocial,
-      fechaEvento: values.fechaEvento.format('YYYY-MM-DDTHH:mm:ss'),
-      Observaciones: values.Observaciones || "NA",
+      fechaEvento: values.fechaEvento.format('YYYY-MM-DD HH:mm:ss'),
+      observaciones: values.Observaciones || values.observaciones || "NA",
       estado: "Pendiente",
       idPropietario: idPropietario,
       idArrendatario: idArrendatario
@@ -217,7 +231,11 @@ export default function SocialHallRequestsPage() {
       if (response.ok) {
         message.success('Solicitud de salón social enviada con éxito');
         form.resetFields();
+        if (user?.cedula) {
+          form.setFieldsValue({ cedula: String(user.cedula) });
+        }
         setActiveView('history');
+        fetchHistory();
       } else {
         const errorData = await response.json().catch(() => ({}));
         message.error(errorData.body || errorData.mensaje || 'Error al enviar la solicitud');
@@ -241,11 +259,14 @@ export default function SocialHallRequestsPage() {
       title: 'Solicitante',
       key: 'solicitante',
       render: (_: any, record: SolicitudSalon) => {
-        const id = (record.idPropietario && record.idPropietario !== "0") ? record.idPropietario : record.idArrendatario;
-        const label = (record.idPropietario && record.idPropietario !== "0") ? "Propietario" : "Arrendatario";
+        const propId = record.idPropietario != null ? String(record.idPropietario).trim() : '';
+        const arrendId = record.idArrendatario != null ? String(record.idArrendatario).trim() : '';
+        const isProp = Boolean(propId && propId !== "0");
+        const id = isProp ? propId : arrendId;
+        const label = isProp ? "Propietario" : "Arrendatario";
         return (
           <div className="flex flex-col">
-            <Text className="font-bold text-slate-700">{id || 'N/A'}</Text>
+            <Text className="font-bold text-slate-700">{id || '—'}</Text>
             <Text className="text-[10px] uppercase font-black text-slate-400 tracking-tighter">{label}</Text>
           </div>
         );

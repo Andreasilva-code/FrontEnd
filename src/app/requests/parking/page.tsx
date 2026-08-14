@@ -41,6 +41,8 @@ import {
   MessageOutlined
 } from '@ant-design/icons';
 
+import dayjs from 'dayjs';
+
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
@@ -69,10 +71,7 @@ interface SolicitudParqueadero {
 const formatDate = (d: string | null | undefined) => {
   if (!d) return '—';
   try {
-    return new Date(d).toLocaleDateString('es-CO', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    });
+    return dayjs(d).format('DD/MM/YYYY HH:mm');
   } catch { return d; }
 };
 
@@ -90,12 +89,22 @@ export default function ParkingRequestsPage() {
   const filteredHistoryData = (Array.isArray(historyData) ? historyData : [])
     .filter(record => {
       if (isAdmin) return true;
-      const recordCedula = record.idPropietario !== "0" ? record.idPropietario : record.idArrendatario;
-      return recordCedula === cedulaUsuario;
+      const propId = record.idPropietario != null ? String(record.idPropietario).trim() : '';
+      const arrendId = record.idArrendatario != null ? String(record.idArrendatario).trim() : '';
+      const recordCedula = (propId && propId !== '0') ? propId : arrendId;
+
+      if (!cedulaUsuario) return true;
+      return String(recordCedula).trim() === cedulaUsuario.trim();
     });
 
   const [replyingTo, setReplyingTo] = useState<SolicitudParqueadero | null>(null);
   const [replyForm] = Form.useForm();
+
+  useEffect(() => {
+    if (user?.cedula) {
+      form.setFieldsValue({ cedula: String(user.cedula) });
+    }
+  }, [user, form]);
 
   const handleOpenReply = (record: SolicitudParqueadero) => {
     setReplyingTo(record);
@@ -109,7 +118,7 @@ export default function ParkingRequestsPage() {
     replyForm.setFieldsValue({
       // Si currentEstado es uno de los válidos, lo asignamos. Si es '1', mapeamos a 'Aprobado'. 
       // Si es cualquier otra cosa o viene vacío, por defecto será 'Pendiente'.
-      estado: currentEstado === '1' ? 'Aprobado' : (estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
+      estado: currentEstado === '1' ? 'Aprobado' : (currentEstado && estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
 
       observaciones: record.observaciones || ''
     });
@@ -163,6 +172,10 @@ export default function ParkingRequestsPage() {
       const data = await response.json();
       if (data && Array.isArray(data.body)) {
         setHistoryData(data.body);
+      } else if (Array.isArray(data)) {
+        setHistoryData(data);
+      } else if (data && Array.isArray(data.data)) {
+        setHistoryData(data.data);
       } else {
         setHistoryData([]);
       }
@@ -197,10 +210,10 @@ export default function ParkingRequestsPage() {
     formData.append('observaciones', values.observaciones || "NA");
     formData.append('idPropietario', idPropietario);
     formData.append('idArrendatario', idArrendatario);
-    formData.append('fechaSolicitud', new Date().toISOString().slice(0, 19).replace('T', ' '));
+    formData.append('fechaSolicitud', dayjs().format('YYYY-MM-DD HH:mm:ss'));
     formData.append('idParqueadero', "0");
     formData.append('discapacidad', values.discapacidad ? "1" : "0");
-    formData.append('aprobado', ''); // Sending empty string or null as per requirement
+    formData.append('estado', 'Pendiente');
 
     // Append file fields
     if (values.docSoat && values.docSoat.length > 0) {
@@ -223,7 +236,11 @@ export default function ParkingRequestsPage() {
       if (response.ok) {
         message.success('Solicitud enviada con éxito');
         form.resetFields();
+        if (user?.cedula) {
+          form.setFieldsValue({ cedula: String(user.cedula) });
+        }
         setActiveView('history');
+        fetchHistory();
       } else {
         const errorData = await response.json().catch(() => ({}));
         message.error(errorData.mensaje || 'Error al enviar la solicitud');
@@ -255,11 +272,14 @@ export default function ParkingRequestsPage() {
       title: 'Solicitante',
       key: 'solicitante',
       render: (_: any, record: SolicitudParqueadero) => {
-        const id = record.idPropietario !== "0" ? record.idPropietario : record.idArrendatario;
-        const label = record.idPropietario !== "0" ? "Propietario" : "Arrendatario";
+        const propId = record.idPropietario != null ? String(record.idPropietario).trim() : '';
+        const arrendId = record.idArrendatario != null ? String(record.idArrendatario).trim() : '';
+        const isProp = Boolean(propId && propId !== "0");
+        const id = isProp ? propId : arrendId;
+        const label = isProp ? "Propietario" : "Arrendatario";
         return (
           <div className="flex flex-col">
-            <Text className="font-bold text-slate-700">{id}</Text>
+            <Text className="font-bold text-slate-700">{id || '—'}</Text>
             <Text className="text-[10px] uppercase font-black text-slate-400 tracking-tighter">{label}</Text>
           </div>
         );
@@ -502,12 +522,21 @@ export default function ParkingRequestsPage() {
                     <Form.Item
                       name="docSoat"
                       label={<Text className="font-bold text-slate-700 text-xs">SOAT Vigente</Text>}
-                      required
                       valuePropName="fileList"
                       getValueFromEvent={(e) => {
                         if (Array.isArray(e)) return e;
                         return e?.fileList;
                       }}
+                      rules={[{
+                        validator: (_, value) => {
+                          const tipo = form.getFieldValue('tipoParqueadero');
+                          if (tipo === 'Bicicleta') return Promise.resolve();
+                          if (!value || value.length === 0) {
+                            return Promise.reject(new Error('SOAT requerido'));
+                          }
+                          return Promise.resolve();
+                        }
+                      }]}
                     >
                       <Upload maxCount={1} beforeUpload={() => false} className="w-full">
                         <Button icon={<UploadOutlined />} className="w-full h-12 rounded-xl border-dashed hover:border-emerald-500 hover:text-emerald-500">
@@ -518,12 +547,21 @@ export default function ParkingRequestsPage() {
                     <Form.Item
                       name="docTecno"
                       label={<Text className="font-bold text-slate-700 text-xs">Tecnomecánica</Text>}
-                      required
                       valuePropName="fileList"
                       getValueFromEvent={(e) => {
                         if (Array.isArray(e)) return e;
                         return e?.fileList;
                       }}
+                      rules={[{
+                        validator: (_, value) => {
+                          const tipo = form.getFieldValue('tipoParqueadero');
+                          if (tipo === 'Bicicleta') return Promise.resolve();
+                          if (!value || value.length === 0) {
+                            return Promise.reject(new Error('Tecnomecánica requerida'));
+                          }
+                          return Promise.resolve();
+                        }
+                      }]}
                     >
                       <Upload maxCount={1} beforeUpload={() => false} className="w-full">
                         <Button icon={<UploadOutlined />} className="w-full h-12 rounded-xl border-dashed hover:border-emerald-500 hover:text-emerald-500">
@@ -534,12 +572,21 @@ export default function ParkingRequestsPage() {
                     <Form.Item
                       name="docTarjeta"
                       label={<Text className="font-bold text-slate-700 text-xs">Tarjeta Propiedad</Text>}
-                      required
                       valuePropName="fileList"
                       getValueFromEvent={(e) => {
                         if (Array.isArray(e)) return e;
                         return e?.fileList;
                       }}
+                      rules={[{
+                        validator: (_, value) => {
+                          const tipo = form.getFieldValue('tipoParqueadero');
+                          if (tipo === 'Bicicleta') return Promise.resolve();
+                          if (!value || value.length === 0) {
+                            return Promise.reject(new Error('Tarjeta de propiedad requerida'));
+                          }
+                          return Promise.resolve();
+                        }
+                      }]}
                     >
                       <Upload maxCount={1} beforeUpload={() => false} className="w-full">
                         <Button icon={<UploadOutlined />} className="w-full h-12 rounded-xl border-dashed hover:border-emerald-500 hover:text-emerald-500">

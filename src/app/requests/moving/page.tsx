@@ -50,6 +50,7 @@ interface SolicitudTrasteo {
   numeroApartamento?: string | number;
   fechaRespuesta?: string | null;
   observaciones?: string | null;
+  estado?: string | null;
 }
 
 export default function MovingRequestsPage() {
@@ -66,8 +67,12 @@ export default function MovingRequestsPage() {
   const filteredHistoryData = (Array.isArray(historyData) ? historyData : [])
     .filter(record => {
       if (isAdmin) return true;
-      const recordCedula = record.idPropietario !== "0" ? record.idPropietario : record.idArrendatario;
-      return recordCedula === cedulaUsuario;
+      const propId = record.idPropietario != null ? String(record.idPropietario).trim() : '';
+      const arrendId = record.idArrendatario != null ? String(record.idArrendatario).trim() : '';
+      const recordCedula = (propId && propId !== '0') ? propId : arrendId;
+
+      if (!cedulaUsuario) return true;
+      return String(recordCedula).trim() === cedulaUsuario.trim();
     });
 
   const [replyingTo, setReplyingTo] = useState<SolicitudTrasteo | null>(null);
@@ -75,23 +80,34 @@ export default function MovingRequestsPage() {
 
   const handleOpenReply = (record: SolicitudTrasteo) => {
     setReplyingTo(record);
-    const currentEstado = record.aprobado;
+    const currentEstado = record.estado || record.aprobado;
     const estadosValidos = ['Pendiente', 'Aprobado', 'Rechazado'];
 
     replyForm.setFieldsValue({
-      estado: currentEstado === '1' ? 'Aprobado' : (estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
+      estado: currentEstado === '1' ? 'Aprobado' : (currentEstado && estadosValidos.includes(currentEstado) ? currentEstado : 'Pendiente'),
       observaciones: record.observaciones || ''
     });
   };
+
+  useEffect(() => {
+    if (user?.cedula) {
+      form.setFieldsValue({ cedula: String(user.cedula) });
+    }
+  }, [user, form]);
 
   const handleSendReply = async (values: any) => {
     if (!replyingTo) return;
     setLoading(true);
 
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const now = new Date();
+    const localIsoString = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
     const payload = {
       id: replyingTo.idSolicitudTrasteos,
       estado: values.estado,
-      observaciones: values.observaciones
+      observaciones: values.observaciones,
+      fechaRespuesta: localIsoString
     };
 
     try {
@@ -127,6 +143,10 @@ export default function MovingRequestsPage() {
       const data = await response.json();
       if (data && Array.isArray(data.body)) {
         setHistoryData(data.body);
+      } else if (Array.isArray(data)) {
+        setHistoryData(data);
+      } else if (data && Array.isArray(data.data)) {
+        setHistoryData(data.data);
       } else {
         setHistoryData([]);
       }
@@ -153,11 +173,11 @@ export default function MovingRequestsPage() {
 
     const payload = {
       fechaTrasteo: values.fechaTrasteo.format('YYYY-MM-DD HH:mm:ss'),
-      Observaciones: values.Observaciones || "NA",
+      observaciones: values.Observaciones || values.observaciones || "NA",
       idPropietario: idPropietario,
       idArrendatario: idArrendatario,
       fechaSolicitud: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      aprobado: "0" // Initial status as per logic 0 = Pendiente
+      estado: "Pendiente"
     };
 
     try {
@@ -170,7 +190,11 @@ export default function MovingRequestsPage() {
       if (response.ok) {
         message.success('Solicitud de trasteo enviada con éxito');
         form.resetFields();
+        if (user?.cedula) {
+          form.setFieldsValue({ cedula: String(user.cedula) });
+        }
         setActiveView('history');
+        fetchHistory();
       } else {
         const errorData = await response.json().catch(() => ({}));
         message.error(errorData.body || errorData.mensaje || 'Error al enviar la solicitud');
@@ -194,11 +218,14 @@ export default function MovingRequestsPage() {
       title: 'Solicitante',
       key: 'solicitante',
       render: (_: any, record: SolicitudTrasteo) => {
-        const id = record.idPropietario !== "0" ? record.idPropietario : record.idArrendatario;
-        const label = record.idPropietario !== "0" ? "Propietario" : "Arrendatario";
+        const propId = record.idPropietario != null ? String(record.idPropietario).trim() : '';
+        const arrendId = record.idArrendatario != null ? String(record.idArrendatario).trim() : '';
+        const isProp = Boolean(propId && propId !== "0");
+        const id = isProp ? propId : arrendId;
+        const label = isProp ? "Propietario" : "Arrendatario";
         return (
           <div className="flex flex-col">
-            <Text className="font-bold text-slate-700">{id}</Text>
+            <Text className="font-bold text-slate-700">{id || '—'}</Text>
             <Text className="text-[10px] uppercase font-black text-slate-400 tracking-tighter">{label}</Text>
           </div>
         );
